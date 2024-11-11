@@ -14,9 +14,11 @@ spec:
       labels:
         app: cassandra
     spec:
+      nodeSelector:
+        kubernetes.io/arch: arm64
       containers:
         - name: cassandra
-          image: arm64v8/cassandra:latest
+          image: cassandra:latest
           ports:
             - containerPort: 7000
               name: intra-node
