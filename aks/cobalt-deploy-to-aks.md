@@ -31,12 +31,26 @@ export myACRName=<your ACR name>
 export myACRImage=${myACRName}:v1
 ```
 
+Ensure that ARM64 images are available in the Azure region you are deploying to:
+
+```bash
+az vm image list \
+    --all \
+    --location $mylocation \
+    --architecture Arm64 \
+    --publisher Canonical \
+    -o table
+
+```
+
 Set the ARM64 image to use for the VM:
 
 ```bash
 export sourcearmimage=<your ARM image name>
 export sourcearmimagename=<your ARM image name>
 ```
+
+
 
 Create a resource group:
 
@@ -55,6 +69,18 @@ az aks create \
     --location $mylocation \
     --node-vm-size $sourcearmimagename \
     --node-count 1 \
+    --generate-ssh-keys
+```
+
+Example: Deploy AKS on the Cobalt-based Standard_D2pds_v6 VM series in eastus:
+
+```bash
+az aks create \
+    --resource-group $myResourceGroup \
+    --name $myAKSCluster \
+    --location eastus \
+    --node-vm-size Standard_D2pds_v6 \
+    --node-count 5 \
     --generate-ssh-keys
 ```
 
@@ -96,8 +122,8 @@ az aks update -g $myResourceGroup -n $myAKSCluster --attach-acr $myACRName
 Add the current Cassandra arm64 Docker Hub image to your ACR:
 
 ```bash
-docker pull arm64v8/cassandra
-docker tag arm64v8/cassandra ${myACRName}.azurecr.io/$myACRImage
+docker pull --platform linux/arm64 cassandra:latest
+docker tag cassandra:latest ${myACRName}.azurecr.io/$myACRImage
 docker push ${myACRName}.azurecr.io/$myACRImage
 ```
 

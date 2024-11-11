@@ -77,7 +77,7 @@ az aks update -g $myResourceGroup -n $myAKSCluster --attach-acr $myACRName
 # Add the current Cassandra arm64 dockerhub image to your ACR
 # Current image: https://hub.docker.com/r/arm64v8/cassandra/
 
-docker pull arm64v8/cassandra
+docker pull --platform linux/arm64 cassandra:latest
 docker tag arm64v8/cassandra ${myACRName}.azurecr.io/$myACRImage
 docker push ${myACRName}.azurecr.io/$myACRImage
 
@@ -85,7 +85,7 @@ docker push ${myACRName}.azurecr.io/$myACRImage
 # Step 4: Deploy Cassandra to the Aure Kubernetes Service (AKS) 
 
 
-# Option 1 - Deploying from docker hub - Current image: https://hub.docker.com/r/arm64v8/cassandra/
+# Option 1 - Deploying from docker hub 
 
 kubectl create -f cassandra-deployment.yaml
 kubectl create -f cassandra-service.yaml
