@@ -1,23 +1,47 @@
-# Create a VM then a new image from an Azure compute image gallery, based on an existing VM.  
+#!/bin/bash
+# filepath: c:\githublocal\armonazure\vm\cobalt-deploy-to-vm-with-gallery.azcli
+# Updated: May 2025
+# Create a VM then a new image from an Azure compute image gallery, based on an existing VM
 
+# ======================================================================================
 # 4 steps: 
 # Step 1: Set up the Environment
 # Step 2: Create a VNET, subnet and VM
-# Step 3: Create a new customized VM image in an Azure compute gallery, based on the VM you just created.
-# Step 4: Create a VM from the image gallery 
+# Step 3: Create a new customized VM image in a Compute Gallery, based on the VM you created
+# Step 4: Create a VM from the image gallery
+# ======================================================================================
 
 # Prerequisites: 
-# An azure account with a subscription ID: https://azure.microsoft.com/en-us/free/
-# 1. Install the Azure CLI: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli?view=azure-cli-latest
+# - An Azure account with a subscription ID: https://azure.microsoft.com/en-us/free/
+# - Install the latest Azure CLI: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
 
-# Step 1: Set up the Environment: 
+# Check Azure CLI version
+echo "Checking Azure CLI version..."
+az version --query '"azure-cli"' -o tsv
 
+# Check if user is logged in
+echo "Checking if you're logged into Azure..."
+SUBSCRIPTION_COUNT=$(az account list --query 'length([])')
+if [ "$SUBSCRIPTION_COUNT" -eq "0" ]; then
+  echo "You're not logged in. Please login to Azure."
+  az login
+else
+  echo "You're already logged in to Azure."
+  echo "Current subscription:"
+  az account show --query name -o tsv
+fi
+
+# ======================================================================================
+# Step 1: Set up the Environment
+# ======================================================================================
+echo -e "\n===== Step 1: Setting up the Environment =====\n"
+
+# Set variables (replace with your own values or uncomment the read commands below to input interactively)
 export RESOURCE_GROUP_NAME=<your resource group name>
 export LOCATION=<your location>
 export NETWORK_SUBNET_NAME=<your subnet name>
 export NETWORK_NAME=<your vnet name>
 export NETWORK_SECURITY_GROUP=<your NSG name>
-export VM_NAME=<your VM name>
 export SOURCE_VM_NAME=<your source VM name>
 export SOURCE_RESOURCE_GROUP_NAME=<your source resource group name>
 export TARGET_VM_NAME=<your target VM name>
@@ -25,128 +49,278 @@ export VM_IMAGE=<your VM image name>
 export VM_IMAGE_VERSION=<your VM image version>
 export IMAGE_GALLERY_NAME=<your image gallery name>
 
+# Interactive input (uncomment to use)
+# read -p "Resource Group Name: " RESOURCE_GROUP_NAME
+# read -p "Location (e.g., eastus, westus2, etc.): " LOCATION
+# read -p "Network Name: " NETWORK_NAME
+# read -p "Subnet Name: " NETWORK_SUBNET_NAME
+# read -p "Network Security Group Name: " NETWORK_SECURITY_GROUP
+# read -p "Source VM Name: " SOURCE_VM_NAME
+# read -p "Source Resource Group Name [$RESOURCE_GROUP_NAME]: " SOURCE_RESOURCE_GROUP_NAME
+# SOURCE_RESOURCE_GROUP_NAME=${SOURCE_RESOURCE_GROUP_NAME:-$RESOURCE_GROUP_NAME}
+# read -p "Target VM Name: " TARGET_VM_NAME
+# read -p "VM Image Name: " VM_IMAGE
+# read -p "VM Image Version (e.g., 1.0.0): " VM_IMAGE_VERSION
+# read -p "Image Gallery Name: " IMAGE_GALLERY_NAME
 
-# Set the current subscription ID
-# CLI: az account image show
-export SUBSCRIPTION_ID=<your subscription ID: az account image show>
+# Get current subscription ID
+echo "Getting current subscription ID..."
+export SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+echo "Subscription ID: $SUBSCRIPTION_ID"
 
-# Set the ARM64 image to use for the VM
-# CLI: Find ARM images: 
-# az vm image list \
-#    --all \
-#    --architecture Arm64 \
-#    -o table
+# Show current Arm64 images
+echo "Fetching available ARM64 VM images from Canonical. This may take a moment..."
+az vm image list \
+    --architecture Arm64 \
+    --publisher Canonical \
+    --offer ubuntu-minimal \
+    --all \
+    --query "[?contains(sku, '22_04') || contains(sku, '20_04')].{Offer:offer, Publisher:publisher, SKU:sku, Version:version}" \
+    -o table
 
-# CLI: Find ARM images published by canonical: 
-#az vm image list \
-#    --all \
-#    --architecture Arm64 \
-#    --publisher Canonical \
-#    -o table
-
+# Set the ARM64 image to use for the VM (replace with your own values)
 export sourcearmimage=<your ARM image name>
 export sourcearmimagename=<your ARM image name>
 
-# Step 2: Create a VNET, subnet and VM
-# Create a resource group.
-az group create --resource-group $RESOURCE_GROUP_NAME --location $LOCATION
+# ======================================================================================
+# Step 2: Create a Resource Group, VNET, Subnet, and VM
+# ======================================================================================
+echo -e "\n===== Step 2: Creating Resource Group, VNET, Subnet, and VM =====\n"
 
-# create vnet
-az network vnet create --resource-group $RESOURCE_GROUP_NAME --location $LOCATION --name $NETWORK_NAME --address-prefixes 172.0.0.0/16
+# Check if resource group exists
+echo "Checking if resource group '$RESOURCE_GROUP_NAME' exists..."
+RG_EXISTS=$(az group exists --name "$RESOURCE_GROUP_NAME")
 
-# create subnet
-az network vnet subnet create --resource-group $RESOURCE_GROUP_NAME --vnet-name $NETWORK_NAME --address-prefixes 172.0.0.0/24 --name $NETWORK_SUBNET_NAME
- 
-# Create a VM 
-az vm create \
-   --resource-group $RESOURCE_GROUP_NAME \
-   --location $LOCATION \
-   --name $SOURCE_VM_NAME \
-   --image $sourcearmimagename \
-   --vnet-name $NETWORK_NAME \
-   --subnet $NETWORK_NAME \
-   --public-ip-sku Standard \
-   --generate-ssh-keys \
-   --specialized
+if [ "$RG_EXISTS" = "true" ]; then
+  echo "Resource group '$RESOURCE_GROUP_NAME' already exists."
+else
+  echo "Creating resource group '$RESOURCE_GROUP_NAME'..."
+  az group create --resource-group "$RESOURCE_GROUP_NAME" --location "$LOCATION"
+fi
 
-# Install Cassandra on the new VM via the serial console
+# Check if vnet exists
+echo "Checking if virtual network '$NETWORK_NAME' exists..."
+VNET_EXISTS=$(az network vnet list --resource-group "$RESOURCE_GROUP_NAME" --query "[?name=='$NETWORK_NAME'].id" -o tsv)
 
-Ubuntu_release=`lsb_release -rs`
-wget https://packages.microsoft.com/config/ubuntu/${ubuntu_release}/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-sudo dpkg -i packages-microsoft-prod.deb
+if [ -n "$VNET_EXISTS" ]; then
+  echo "Virtual network '$NETWORK_NAME' already exists."
+else
+  echo "Creating virtual network '$NETWORK_NAME'..."
+  az network vnet create \
+    --resource-group "$RESOURCE_GROUP_NAME" \
+    --location "$LOCATION" \
+    --name "$NETWORK_NAME" \
+    --address-prefixes "172.0.0.0/16"
+fi
 
-sudo apt-get install apt-transport-https
-sudo apt-get update
-sudo apt-get install msopenjdk-8
+# Check if subnet exists
+echo "Checking if subnet '$NETWORK_SUBNET_NAME' exists..."
+SUBNET_EXISTS=$(az network vnet subnet list --resource-group "$RESOURCE_GROUP_NAME" --vnet-name "$NETWORK_NAME" --query "[?name=='$NETWORK_SUBNET_NAME'].id" -o tsv)
 
-echo "deb http://www.apache.org/dist/cassandra/debian 311x main" | sudo tee -a /etc/apt/sources.list.d/cassandra.sources.list
-curl https://www.apache.org/dist/cassandra/KEYS | sudo apt-key add -
-sudo apt update
-sudo apt install cassandra
-sudo service cassandra start
-sudo service cassandra status
-cqlsh
+if [ -n "$SUBNET_EXISTS" ]; then
+  echo "Subnet '$NETWORK_SUBNET_NAME' already exists."
+else
+  echo "Creating subnet '$NETWORK_SUBNET_NAME'..."
+  az network vnet subnet create \
+    --resource-group "$RESOURCE_GROUP_NAME" \
+    --vnet-name "$NETWORK_NAME" \
+    --address-prefixes "172.0.0.0/24" \
+    --name "$NETWORK_SUBNET_NAME"
+fi
 
-# Step 3: Create a new customized VM image in an Azure compute gallery, based on the VM you just created.
+# Check if VM exists
+echo "Checking if source VM '$SOURCE_VM_NAME' exists..."
+VM_EXISTS=$(az vm list --resource-group "$RESOURCE_GROUP_NAME" --query "[?name=='$SOURCE_VM_NAME'].id" -o tsv)
 
-# Create an Azure Compute image gallery.
-az sig create --resource-group $RESOURCE_GROUP_NAME --gallery-name $IMAGE_GALLERY_NAME
+if [ -n "$VM_EXISTS" ]; then
+  echo "Source VM '$SOURCE_VM_NAME' already exists."
+else
+  echo "Creating source VM '$SOURCE_VM_NAME' with image $sourcearmimagename..."
+  
+  echo "This may take a few minutes..."
+  az vm create \
+    --resource-group "$RESOURCE_GROUP_NAME" \
+    --location "$LOCATION" \
+    --name "$SOURCE_VM_NAME" \
+    --image "$sourcearmimagename" \
+    --vnet-name "$NETWORK_NAME" \
+    --subnet "$NETWORK_SUBNET_NAME" \
+    --public-ip-sku Standard \
+    --generate-ssh-keys \
+    --tags "Environment=Development" "Project=ArmVM" "Purpose=ImageSource"
+  
+  echo "Source VM creation complete!"
+  
+  # Get the public IP address of the VM
+  SOURCE_VM_IP=$(az vm show -d -g "$RESOURCE_GROUP_NAME" -n "$SOURCE_VM_NAME" --query publicIps -o tsv)
+  echo "Source VM Public IP: $SOURCE_VM_IP"
+  
+  echo "To install Cassandra on the source VM, connect via SSH:"
+  echo "  ssh azureuser@$SOURCE_VM_IP"
+  
+  echo -e "\nExample commands to install Cassandra on Ubuntu:"
+  echo "======================================================================="
+  echo "# First, update packages and install dependencies"
+  echo "sudo apt-get update && sudo apt-get upgrade -y"
+  echo "sudo apt-get install -y apt-transport-https gnupg"
+  echo ""
+  echo "# Install Java"
+  echo "sudo apt-get install -y openjdk-11-jdk"
+  echo ""
+  echo "# Add Cassandra repository"
+  echo "echo \"deb https://debian.cassandra.apache.org 41x main\" | sudo tee -a /etc/apt/sources.list.d/cassandra.sources.list"
+  echo "curl https://downloads.apache.org/cassandra/KEYS | sudo apt-key add -"
+  echo "sudo apt-get update"
+  echo ""
+  echo "# Install Cassandra"
+  echo "sudo apt-get install -y cassandra"
+  echo ""
+  echo "# Start Cassandra service"
+  echo "sudo systemctl start cassandra"
+  echo "sudo systemctl enable cassandra"
+  echo ""
+  echo "# Check Cassandra status"
+  echo "sudo systemctl status cassandra"
+  echo "nodetool status"
+  echo "cqlsh localhost -e \"describe keyspaces;\""
+  echo "======================================================================="
+  
+  echo -e "\nImportant: Install all necessary software on the source VM before proceeding to Step 3."
+  echo "Press Enter when you have finished customizing the source VM..."
+  read
+fi
 
-# Create the Image Definition and add it to the gallery
+# ======================================================================================
+# Step 3: Create a new customized VM image in a Compute Gallery
+# ======================================================================================
+echo -e "\n===== Step 3: Creating VM Image in Compute Gallery =====\n"
 
-az sig image-definition create \
-    --resource-group $RESOURCE_GROUP_NAME \
-    --location $LOCATION \
-    --gallery-name $IMAGE_GALLERY_NAME \
-    --gallery-image-definition $VM_IMAGE \
-    --publisher Canonical \
-    --offer UbuntuServer \
-    --sku ${sourcearmimagename} \
+# Check if the gallery exists
+echo "Checking if image gallery '$IMAGE_GALLERY_NAME' exists..."
+GALLERY_EXISTS=$(az sig list --resource-group "$RESOURCE_GROUP_NAME" --query "[?name=='$IMAGE_GALLERY_NAME'].id" -o tsv)
+
+if [ -n "$GALLERY_EXISTS" ]; then
+  echo "Image gallery '$IMAGE_GALLERY_NAME' already exists."
+else
+  echo "Creating image gallery '$IMAGE_GALLERY_NAME'..."
+  az sig create \
+    --resource-group "$RESOURCE_GROUP_NAME" \
+    --gallery-name "$IMAGE_GALLERY_NAME" \
+    --location "$LOCATION" \
+    --description "Gallery for ARM64 VM images"
+fi
+
+# Check if the image definition exists
+echo "Checking if image definition '$VM_IMAGE' exists..."
+IMAGE_DEF_EXISTS=$(az sig image-definition list \
+  --resource-group "$RESOURCE_GROUP_NAME" \
+  --gallery-name "$IMAGE_GALLERY_NAME" \
+  --query "[?name=='$VM_IMAGE'].id" -o tsv)
+
+if [ -n "$IMAGE_DEF_EXISTS" ]; then
+  echo "Image definition '$VM_IMAGE' already exists."
+else
+  echo "Creating image definition '$VM_IMAGE'..."
+  az sig image-definition create \
+    --resource-group "$RESOURCE_GROUP_NAME" \
+    --location "$LOCATION" \
+    --gallery-name "$IMAGE_GALLERY_NAME" \
+    --gallery-image-definition "$VM_IMAGE" \
+    --publisher "CustomImages" \
+    --offer "CustomVM" \
+    --sku "ARM64-Cassandra" \
     --os-type Linux \
     --os-state specialized \
     --hyper-v-generation V2 \
     --architecture Arm64
+fi
 
+# Check if the image version exists
+echo "Checking if image version '$VM_IMAGE_VERSION' exists..."
+IMAGE_VERSION_EXISTS=$(az sig image-version list \
+  --resource-group "$RESOURCE_GROUP_NAME" \
+  --gallery-name "$IMAGE_GALLERY_NAME" \
+  --gallery-image-definition "$VM_IMAGE" \
+  --query "[?name=='$VM_IMAGE_VERSION'].id" -o tsv)
 
-# Get the ID of the source VM to use as an image, save the result for the az sig image-version create command below.
-az vm get-instance-view -g $RESOURCE_GROUP_NAME -n $VM_NAME --query id
+if [ -n "$IMAGE_VERSION_EXISTS" ]; then
+  echo "Image version '$VM_IMAGE_VERSION' already exists."
+else
+  # Get the ID of the source VM to use as an image
+  echo "Getting ID of source VM '$SOURCE_VM_NAME'..."
+  SOURCE_VM_ID=$(az vm get-instance-view -g "$RESOURCE_GROUP_NAME" -n "$SOURCE_VM_NAME" --query id -o tsv)
+  
+  echo "Creating image version '$VM_IMAGE_VERSION' from source VM..."
+  echo "This may take several minutes..."
+  
+  az sig image-version create \
+    --resource-group "$RESOURCE_GROUP_NAME" \
+    --location "$LOCATION" \
+    --gallery-name "$IMAGE_GALLERY_NAME" \
+    --gallery-image-definition "$VM_IMAGE" \
+    --gallery-image-version "$VM_IMAGE_VERSION" \
+    --target-regions "$LOCATION" \
+    --replica-count 1 \
+    --virtual-machine "$SOURCE_VM_ID"
+  
+  echo "Image version creation complete!"
+fi
 
-# Create the Image Version
-# Change the version number when adding an additional version
-az sig image-version create \
-   --resource-group $RESOURCE_GROUP_NAME \
-   --location $LOCATION \
-   --gallery-name $IMAGE_GALLERY_NAME \
-   --gallery-image-definition $VM_IMAGE \
-   --gallery-image-version $VM_IMAGE_VERSION \
-   --target-regions "East US" \
-   --replica-count 1 \
-   --virtual-machine "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${SOURCE_RESOURCE_GROUP_NAME}/providers/Microsoft.Compute/virtualMachines/${SOURCE_VM_NAME}"
+# ======================================================================================
+# Step 4: Create a VM from the Image Gallery
+# ======================================================================================
+echo -e "\n===== Step 4: Creating VM from Image Gallery =====\n"
 
+# Check if target VM exists
+echo "Checking if target VM '$TARGET_VM_NAME' exists..."
+TARGET_VM_EXISTS=$(az vm list --resource-group "$RESOURCE_GROUP_NAME" --query "[?name=='$TARGET_VM_NAME'].id" -o tsv)
 
+if [ -n "$TARGET_VM_EXISTS" ]; then
+  echo "Target VM '$TARGET_VM_NAME' already exists."
+else
+  echo "Creating target VM '$TARGET_VM_NAME' from image gallery..."
+  echo "This may take a few minutes..."
+  
+  # Get the image ID from the gallery
+  IMAGE_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Compute/galleries/${IMAGE_GALLERY_NAME}/images/${VM_IMAGE}/versions/${VM_IMAGE_VERSION}"
+  
+  # Create the VM from the gallery image
+  az vm create \
+    --resource-group "$RESOURCE_GROUP_NAME" \
+    --location "$LOCATION" \
+    --name "$TARGET_VM_NAME" \
+    --image "$IMAGE_ID" \
+    --vnet-name "$NETWORK_NAME" \
+    --subnet "$NETWORK_SUBNET_NAME" \
+    --public-ip-sku Standard \
+    --generate-ssh-keys \
+    --specialized \
+    --tags "Environment=Development" "Project=ArmVM" "Purpose=FromGallery"
+  
+  echo "Target VM creation complete!"
+fi
 
-# Step 4: Create a VM from the image gallery 
+# Open ports for HTTP access
+echo "Opening ports 22 (SSH), 80 (HTTP), and 443 (HTTPS) on target VM..."
+az vm open-port \
+  --resource-group "$RESOURCE_GROUP_NAME" \
+  --name "$TARGET_VM_NAME" \
+  --port "22,80,443,9042" \
+  --priority 100
 
-az vm create \
-   --resource-group $RESOURCE_GROUP_NAME \
-   --location $LOCATION \
-   --name $TARGET_VM_NAME \
-   --image "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Compute/galleries/${IMAGE_GALLERY_NAME}/images/${IMAGE_GALLERY_NAME}" \
-   --vnet-name $NETWORK_NAME \
-   --subnet $NETWORK_NAME \
-   --public-ip-sku Standard \
-   --generate-ssh-keys \
-   --specialized
+# Get the public IP address of the target VM
+TARGET_VM_IP=$(az vm show -d -g "$RESOURCE_GROUP_NAME" -n "$TARGET_VM_NAME" --query publicIps -o tsv)
+echo "Target VM Public IP: $TARGET_VM_IP"
 
-# Switch to a browser, show the created VM
-https://portal.azure.com/?feature.customportal=false#@microsoft.onmicrosoft.com/resource/subscriptions/c5bd7244-ab30-4473-8e88-d4d58b246c94/resourceGroups/armvmdemo/providers/Microsoft.Compute/virtualMachines/armvmfromgallery/overview
+echo "To connect to the target VM via SSH:"
+echo "  ssh azureuser@$TARGET_VM_IP"
 
+echo -e "\nTo check Cassandra on the target VM:"
+echo "  ssh azureuser@$TARGET_VM_IP 'sudo systemctl status cassandra'"
+echo "  ssh azureuser@$TARGET_VM_IP 'nodetool status'"
 
-# Connect to the VM via the serial console, show the running app 
+echo -e "\nAzure Portal URL to view the VM:"
+echo "https://portal.azure.com/#@/resource/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP_NAME}/providers/Microsoft.Compute/virtualMachines/${TARGET_VM_NAME}/overview"
 
-# Optional: Open Ports for HTTP access
-   
-az vm open-port --resource-group $RESOURCE_GROUP_NAME \
-   --location $LOCATION \
-   --name $TARGET_VM_NAME \
-   --port 2222,8080 --priority 100
+echo -e "\nVM Gallery Setup Complete!"
+echo "You have successfully created a custom VM image and deployed a new VM from that image."

@@ -1,106 +1,417 @@
-# Create a new Azure Kubernetes Service running Cassandra on an Cobalt ARM64 VM
+#!/bin/bash
+# filepath: c:\githublocal\armonazure\aks\cobalt-deploy-to-aks.azcli
+# Updated: May 2025
+# Create a new Azure Kubernetes Service running Cassandra on Azure Cobalt ARM64 VMs
 
+# ======================================================================================
 # 4 steps: 
 # Step 1: Set up the Environment
-# Step 2: Create an Azure Kubernetes Service AKS running on ARM64 
+# Step 2: Create an Azure Kubernetes Service (AKS) running on ARM64 
 # Step 3: Create an Azure Container Registry (ACR) (Optional)
-# Step 4: Deploy Cassandra to the Aure Kubernetes Service (AKS)
+# Step 4: Deploy Cassandra to the Azure Kubernetes Service (AKS)
+# ======================================================================================
 
 # Prerequisites: 
-# An azure account with a subscription ID: https://azure.microsoft.com/en-us/free/
-# 1. Install the Azure CLI: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli?view=azure-cli-latest
+# - An Azure account with a subscription ID: https://azure.microsoft.com/en-us/free/
+# - Install the latest Azure CLI: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
 
-# Step 1: Set up the Environment: 
+# Check Azure CLI version
+echo "Checking Azure CLI version..."
+az version --query '"azure-cli"' -o tsv
 
-# For AKS commands: 
+# Check if user is logged in
+echo "Checking if you're logged into Azure..."
+SUBSCRIPTION_COUNT=$(az account list --query 'length([])')
+if [ "$SUBSCRIPTION_COUNT" -eq "0" ]; then
+  echo "You're not logged in. Please login to Azure."
+  az login
+else
+  echo "You're already logged in to Azure."
+  echo "Current subscription:"
+  az account show --query name -o tsv
+fi
+
+# ======================================================================================
+# Step 1: Set up the Environment
+# ======================================================================================
+echo -e "\n===== Step 1: Setting up the Environment =====\n"
+
+# For AKS commands (replace with your own values or uncomment the read commands below to input interactively)
 export myResourceGroup=<your resource group name>
 export mylocation=<your location>
 export myAKSCluster=<your AKS cluster name>
 
 # For ACR (Optional)
 export myACRName=<your ACR name>
-export myACRImage=${myACRName}:v1
+export myACRImage=cassandra
+export myACRTag=v1
 
+# Interactive input (uncomment to use)
+# read -p "Resource Group Name: " myResourceGroup
+# read -p "Location (e.g., eastus, westus2, etc.): " mylocation
+# read -p "AKS Cluster Name: " myAKSCluster
+# read -p "ACR Name (leave empty to skip ACR creation): " myACRName
+# if [ -n "$myACRName" ]; then
+#   read -p "ACR Image Name [cassandra]: " myACRImage
+#   myACRImage=${myACRImage:-cassandra}
+#   read -p "ACR Image Tag [v1]: " myACRTag
+#   myACRTag=${myACRTag:-v1}
+# fi
 
-# Set the ARM64 image to use for the VM
-# CLI: Find ARM images: 
-# az vm image list \
-#    --all \
-#    --architecture Arm64 \
-#    -o table
+# List available ARM64 VM sizes in the selected region
+echo "Finding available ARM64 VM sizes in $mylocation..."
+az vm list-sizes \
+  --location "$mylocation" \
+  --query "[?contains(name, 'D') && contains(name, 'ps') && contains(name, 'v5')].{Name:name, CPUs:numberOfCores, MemoryGB:memoryInMb}" \
+  -o table
 
-# CLI: Find ARM images published by canonical: 
-#az vm image list \
-#    --all \
-#    --architecture Arm64 \
-#    --publisher Canonical \
-#    -o table
+# Set the ARM64 VM size to use for AKS nodes (use Standard_D4ps_v5 or similar)
+export nodeVMSize=Standard_D4ps_v5
 
-export sourcearmimage=<your ARM image name>
-export sourcearmimagename=<your ARM image name>
+# ======================================================================================
+# Step 2: Create Azure Resources
+# ======================================================================================
+echo -e "\n===== Step 2: Creating Azure Resources =====\n"
 
-# Create a resource group.
-az group create --resource-group $myResourceGroup --location $mylocation
+# Check if resource group exists
+echo "Checking if resource group '$myResourceGroup' exists..."
+RG_EXISTS=$(az group exists --name "$myResourceGroup")
 
-# Step 2: Create an Azure Kubernetes Service AKS running on ARM64 
-# Choose a Cobalt-based Dpsv6, Dpdsv6, Dplsv6, Dpldsv6, Epsv6, or Epdsv6 VM series for --node-vm-size:
+if [ "$RG_EXISTS" = "true" ]; then
+  echo "Resource group '$myResourceGroup' already exists."
+else
+  echo "Creating resource group '$myResourceGroup'..."
+  az group create --resource-group "$myResourceGroup" --location "$mylocation"
+fi
 
-az aks create \
-    --resource-group $myResourceGroup \
-    --name $myAKSCluster \
-    --location $mylocation \
-    --node-vm-size $sourcearmimagename
-    --node-count 1 \
-    --generate-ssh-keys
+# Check if AKS cluster exists
+echo "Checking if AKS cluster '$myAKSCluster' exists..."
+AKS_EXISTS=$(az aks list --resource-group "$myResourceGroup" --query "[?name=='$myAKSCluster'].id" -o tsv)
 
-# Install kubectl in the Azure CLI, connected to AKS
-az aks install-cli
+if [ -n "$AKS_EXISTS" ]; then
+  echo "AKS cluster '$myAKSCluster' already exists."
+else
+  echo "Creating AKS cluster '$myAKSCluster'..."
+  echo "This may take a few minutes..."
+  
+  # Create AKS cluster with Cobalt-based VMs
+  az aks create \
+    --resource-group "$myResourceGroup" \
+    --name "$myAKSCluster" \
+    --location "$mylocation" \
+    --node-vm-size "$nodeVMSize" \
+    --node-count 2 \
+    --generate-ssh-keys \
+    --network-plugin azure \
+    --network-policy azure \
+    --tags "Environment=Development" "Project=ArmAKS"
+    
+  echo "AKS cluster creation complete!"
+fi
 
-# Get the credentials of the new AKS cluster
-az aks get-credentials --resource-group $myResourceGroup --name $myAKSCluster --overwrite-existing
+# Install kubectl CLI if not already installed
+if ! command -v kubectl &> /dev/null; then
+  echo "Installing kubectl CLI..."
+  az aks install-cli
+fi
 
+# Get AKS credentials
+echo "Getting AKS credentials..."
+az aks get-credentials --resource-group "$myResourceGroup" --name "$myAKSCluster" --overwrite-existing
+
+# Verify AKS connection
+echo "Verifying connection to AKS cluster..."
+kubectl get nodes
+
+# ======================================================================================
 # Step 3: Create an Azure Container Registry (ACR) (Optional)
-az acr create \
-    --resource-group $myResourceGroup \
-    --name $myACRName \
-    --location $mylocation \
-    --sku Standard \
-    --admin-enabled true
+# ======================================================================================
+echo -e "\n===== Step 3: Creating Azure Container Registry (Optional) =====\n"
 
-# Log in to the ACR
-az acr login --name $myACRName
+if [ -n "$myACRName" ]; then
+  # Check if ACR exists
+  echo "Checking if ACR '$myACRName' exists..."
+  ACR_EXISTS=$(az acr list --resource-group "$myResourceGroup" --query "[?name=='$myACRName'].id" -o tsv)
 
-# Attach the ACR to the AKS instance 
+  if [ -n "$ACR_EXISTS" ]; then
+    echo "ACR '$myACRName' already exists."
+  else
+    echo "Creating ACR '$myACRName'..."
+    az acr create \
+      --resource-group "$myResourceGroup" \
+      --name "$myACRName" \
+      --location "$mylocation" \
+      --sku Standard \
+      --admin-enabled true
+    
+    echo "ACR creation complete!"
+  fi
 
-az aks update -g $myResourceGroup -n $myAKSCluster --attach-acr $myACRName
+  # Log in to the ACR
+  echo "Logging in to ACR '$myACRName'..."
+  az acr login --name "$myACRName"
 
-# Add the current Cassandra arm64 dockerhub image to your ACR
-# Current image: https://hub.docker.com/r/arm64v8/cassandra/
+  # Attach the ACR to the AKS instance
+  echo "Attaching ACR to AKS..."
+  az aks update -g "$myResourceGroup" -n "$myAKSCluster" --attach-acr "$myACRName"
 
-docker pull --platform linux/arm64 cassandra:latest
-docker tag arm64v8/cassandra ${myACRName}.azurecr.io/$myACRImage
-docker push ${myACRName}.azurecr.io/$myACRImage
+  # Pull and push Cassandra image to ACR
+  echo "Pulling Cassandra ARM64 image from DockerHub and pushing to ACR..."
+  docker pull --platform linux/arm64 cassandra:latest
+  docker tag cassandra:latest ${myACRName}.azurecr.io/${myACRImage}:${myACRTag}
+  docker push ${myACRName}.azurecr.io/${myACRImage}:${myACRTag}
+  
+  echo "Image pushed to ACR: ${myACRName}.azurecr.io/${myACRImage}:${myACRTag}"
+else
+  echo "Skipping ACR creation as no ACR name was provided."
+fi
 
+# ======================================================================================
+# Step 4: Deploy Cassandra to Azure Kubernetes Service (AKS)
+# ======================================================================================
+echo -e "\n===== Step 4: Deploying Cassandra to AKS =====\n"
 
-# Step 4: Deploy Cassandra to the Aure Kubernetes Service (AKS) 
+# Check if Cassandra is already deployed
+CASSANDRA_DEPLOYED=$(kubectl get pods -l app=cassandra 2>/dev/null | grep -c cassandra)
 
+if [ "$CASSANDRA_DEPLOYED" -gt 0 ]; then
+  echo "Cassandra is already deployed to the cluster."
+else
+  # Ask which deployment option to use
+  if [ -n "$myACRName" ]; then
+    echo "Choose deployment option:"
+    echo "1. Deploy Cassandra from DockerHub (default)"
+    echo "2. Deploy Cassandra from your ACR (${myACRName}.azurecr.io/${myACRImage}:${myACRTag})"
+    read -p "Enter option [1]: " DEPLOY_OPTION
+    DEPLOY_OPTION=${DEPLOY_OPTION:-1}
+  else
+    DEPLOY_OPTION=1
+  fi
+  
+  if [ "$DEPLOY_OPTION" -eq "2" ]; then
+    echo "Deploying Cassandra from ACR..."
+    
+    # Update the deployment file with ACR image
+    echo "Creating deployment file with ACR image..."
+    cat > cassandra-deployment-from-acr.yaml << EOF
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cassandra
+  labels:
+    app: cassandra
+spec:
+  serviceName: cassandra
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cassandra
+  template:
+    metadata:
+      labels:
+        app: cassandra
+    spec:
+      terminationGracePeriodSeconds: 1800
+      containers:
+      - name: cassandra
+        image: ${myACRName}.azurecr.io/${myACRImage}:${myACRTag}
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 7000
+          name: intra-node
+        - containerPort: 7001
+          name: tls-intra-node
+        - containerPort: 7199
+          name: jmx
+        - containerPort: 9042
+          name: cql
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+          requests:
+            cpu: "0.5"
+            memory: 1Gi
+        securityContext:
+          capabilities:
+            add:
+              - IPC_LOCK
+        lifecycle:
+          preStop:
+            exec:
+              command: 
+              - /bin/sh
+              - -c
+              - nodetool drain
+        env:
+          - name: MAX_HEAP_SIZE
+            value: 512M
+          - name: HEAP_NEWSIZE
+            value: 100M
+          - name: CASSANDRA_SEEDS
+            value: "cassandra-0.cassandra.default.svc.cluster.local"
+          - name: CASSANDRA_CLUSTER_NAME
+            value: "K8Demo"
+          - name: CASSANDRA_DC
+            value: "DC1"
+          - name: CASSANDRA_RACK
+            value: "Rack1"
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+        volumeMounts:
+        - name: cassandra-data
+          mountPath: /var/lib/cassandra
+  volumeClaimTemplates:
+  - metadata:
+      name: cassandra-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: managed-premium
+      resources:
+        requests:
+          storage: 10Gi
+EOF
+    
+    # Apply ACR deployment
+    kubectl create -f cassandra-deployment-from-acr.yaml
+    
+  else
+    echo "Deploying Cassandra from DockerHub..."
+    
+    # Create deployment file for DockerHub
+    echo "Creating deployment file with DockerHub image..."
+    cat > cassandra-deployment.yaml << EOF
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cassandra
+  labels:
+    app: cassandra
+spec:
+  serviceName: cassandra
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cassandra
+  template:
+    metadata:
+      labels:
+        app: cassandra
+    spec:
+      terminationGracePeriodSeconds: 1800
+      containers:
+      - name: cassandra
+        image: arm64v8/cassandra:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 7000
+          name: intra-node
+        - containerPort: 7001
+          name: tls-intra-node
+        - containerPort: 7199
+          name: jmx
+        - containerPort: 9042
+          name: cql
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+          requests:
+            cpu: "0.5"
+            memory: 1Gi
+        securityContext:
+          capabilities:
+            add:
+              - IPC_LOCK
+        lifecycle:
+          preStop:
+            exec:
+              command: 
+              - /bin/sh
+              - -c
+              - nodetool drain
+        env:
+          - name: MAX_HEAP_SIZE
+            value: 512M
+          - name: HEAP_NEWSIZE
+            value: 100M
+          - name: CASSANDRA_SEEDS
+            value: "cassandra-0.cassandra.default.svc.cluster.local"
+          - name: CASSANDRA_CLUSTER_NAME
+            value: "K8Demo"
+          - name: CASSANDRA_DC
+            value: "DC1"
+          - name: CASSANDRA_RACK
+            value: "Rack1"
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+        volumeMounts:
+        - name: cassandra-data
+          mountPath: /var/lib/cassandra
+  volumeClaimTemplates:
+  - metadata:
+      name: cassandra-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: managed-premium
+      resources:
+        requests:
+          storage: 10Gi
+EOF
+    
+    # Apply DockerHub deployment
+    kubectl create -f cassandra-deployment.yaml
+  fi
+  
+  # Create service for Cassandra
+  echo "Creating Cassandra service..."
+  cat > cassandra-service.yaml << EOF
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: cassandra
+  name: cassandra
+spec:
+  clusterIP: None
+  ports:
+  - port: 9042
+    name: cql
+  - port: 7199
+    name: jmx
+  - port: 7001
+    name: tls-intra-node
+  - port: 7000
+    name: intra-node
+  selector:
+    app: cassandra
+EOF
+  
+  kubectl create -f cassandra-service.yaml
+  
+  echo "Waiting for Cassandra pod to be ready..."
+  kubectl wait --for=condition=ready pod -l app=cassandra --timeout=300s
+  
+  echo "Cassandra deployment complete!"
+fi
 
-# Option 1 - Deploying from docker hub 
-
-kubectl create -f cassandra-deployment.yaml
-kubectl create -f cassandra-service.yaml
+# Display pods and services
+echo -e "\nCassandra pods:"
 kubectl get pods -l app=cassandra
-kubectl logs <pod name for cassandra>
 
-# Option 2 - Deploying from ACR
-# Edit cassandra-deployment-from-acr.yaml to specify the ACR repository image to deploy:
-# containers:
-#        - name: cassandra
-#          image: myACRName.azurecr.io/myACRImage:myACRImageVersion
+echo -e "\nCassandra services:"
+kubectl get svc -l app=cassandra
 
-kubectl create -f cassandra-deployment-from-acr.yaml
-kubectl create -f cassandra-service.yaml
-kubectl get pods -l app=cassandra
-kubectl logs <pod name for cassandra>
+echo -e "\nTo view Cassandra logs:"
+echo "kubectl logs \$(kubectl get pods -l app=cassandra -o jsonpath='{.items[0].metadata.name}')"
+
+echo -e "\nTo connect to Cassandra CQL shell:"
+echo "kubectl exec -it \$(kubectl get pods -l app=cassandra -o jsonpath='{.items[0].metadata.name}') -- cqlsh"
+
+echo -e "\nAKS with Cassandra deployment completed successfully!"
 
 
