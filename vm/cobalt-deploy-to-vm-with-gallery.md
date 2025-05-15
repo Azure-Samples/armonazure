@@ -2,6 +2,7 @@
 
 This guide walks you through the process of creating a virtual machine (VM), customizing it, and then using it to create a reusable image in an Azure Compute Gallery. The updated script includes resource existence checks, detailed progress tracking, and improved customization options.
 
+
 1. Set up the Environment
 2. Create a VNET, subnet, and VM
 3. Create a new customized VM image in an Azure compute gallery, based on the VM you just created

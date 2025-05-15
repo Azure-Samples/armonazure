@@ -2,6 +2,8 @@
 
 This repo contains Details and documentation on how to deploy Azure Cobalt Arm–based processors on Azure for Azure Virtual Machines and Azure Kubernetes Service.  Use the .azcli scripts as a template to deploy to Azure VMs and Azure Kubernetes Service.  
 
+## Deployment Guides
+
 In this repo: 
 
 [Create a new Azure Kubernetes Service on Azure Cobalt CPUs](aks/cobalt-deploy-to-aks.md) 
@@ -10,6 +12,8 @@ In this repo:
 
 [Create and Customize an Azure Cobalt VM from Azure Compute Gallery](vm/cobalt-deploy-to-vm-with-gallery.md)
 
+
+## Additional Resources
 
 Links: 
 
@@ -42,9 +46,9 @@ Current Azure Cobalt 100-based VMs: [Dpsv6-series](https://aka.ms/Dpsv6-series_p
 
 ☁️ <a href='https://learn.microsoft.com/en-us/azure/virtual-machines/linux/quick-create-terraform' target='_blank'>Create a Linux VM using Terraform</a> 
 
-☁️ <a href='https://learn.microsoft.com/en-us/azure/virtual-machines/create-gallery?tabs=portal%2Cportaldirect%2Ccli2' target='_blank'>Create an Azure Compute  Gallery</a> 
+☁️ <a href='https://learn.microsoft.com/en-us/azure/virtual-machines/create-gallery?tabs=portal%2Cportaldirect%2Ccli2' target='_blank'>Create an Azure Compute Gallery</a> 
 
 ☁️ <a href='https://github.com/marketplace/actions/build-azure-virtual-machine-image' target='_blank'>GitHub Action to Build Custom Virtual Machine Images</a> 
 
-☁️ <a href='https://github.com/Azure/build-vm-image/blob/master/tutorial/how-to-use-action.md' target='_blank'>GitHub Action - Custom VM - Tutorial</a> 
+☁️ <a href='https://github.com/Azure/build-vm-image/blob/master/tutorial/how-to-use-action.md' target='_blank'>GitHub Action - Custom VM - Tutorial</a>
 

@@ -2,6 +2,7 @@
 
 This guide will walk you through creating and customizing an ARM64 Azure VM using the Azure CLI. The script includes advanced features like resource existence checks and detailed progress information.
 
+
 ## Prerequisites
 
 - An Azure account with a subscription ID. Sign up for a free account [here](https://azure.microsoft.com/en-us/free/).

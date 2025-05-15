@@ -2,6 +2,7 @@
 
 This guide will walk you through the process of creating an Azure Kubernetes Service (AKS) running Cassandra on Azure Cobalt ARM64 VMs. The updated script includes resource existence checks, detailed progress tracking, and improved customization options.
 
+
 ## Prerequisites
 
 - An Azure account with a subscription ID: [https://azure.microsoft.com/en-us/free/](https://azure.microsoft.com/en-us/free/)
