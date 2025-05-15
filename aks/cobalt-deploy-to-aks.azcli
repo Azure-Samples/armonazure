@@ -167,41 +167,57 @@ else
 fi
 
 # ======================================================================================
-# Step 4: Deploy Cassandra to Azure Kubernetes Service (AKS)
+# Step 4: Deploy Cassandra to AKS
 # ======================================================================================
 echo -e "\n===== Step 4: Deploying Cassandra to AKS =====\n"
 
-# Check if Cassandra is already deployed
-CASSANDRA_DEPLOYED=$(kubectl get pods -l app=cassandra 2>/dev/null | grep -c cassandra)
+echo "Would you like to deploy the improved Cassandra StatefulSet? (y/n)"
+read -r use_improved
 
-if [ "$CASSANDRA_DEPLOYED" -gt 0 ]; then
-  echo "Cassandra is already deployed to the cluster."
-else
-  # Ask which deployment option to use
-  if [ -n "$myACRName" ]; then
-    echo "Choose deployment option:"
-    echo "1. Deploy Cassandra from DockerHub (default)"
-    echo "2. Deploy Cassandra from your ACR (${myACRName}.azurecr.io/${myACRImage}:${myACRTag})"
-    read -p "Enter option [1]: " DEPLOY_OPTION
-    DEPLOY_OPTION=${DEPLOY_OPTION:-1}
-  else
-    DEPLOY_OPTION=1
-  fi
+if [[ "$use_improved" == "y" || "$use_improved" == "Y" ]]; then
+  echo "Deploying improved Cassandra StatefulSet configuration..."
   
-  if [ "$DEPLOY_OPTION" -eq "2" ]; then
+  # Apply the ConfigMap first
+  echo "Creating Cassandra ConfigMap..."
+  kubectl apply -f cassandra-config.yaml
+  
+  # Apply the improved StatefulSet
+  echo "Creating Cassandra StatefulSet..."
+  kubectl apply -f improved-cassandra-statefulset.yaml
+  
+  # Apply the improved Service
+  echo "Creating Cassandra Service..."
+  kubectl apply -f improved-cassandra-service.yaml
+  
+  echo "Waiting for Cassandra pods to be created..."
+  kubectl wait --for=condition=Ready pod/cassandra-0 --timeout=300s
+  
+  echo "Cassandra deployment started. The StatefulSet will create pods in order."
+  echo "Monitor the status with: kubectl get pods -l app=cassandra"
+  echo "Check Cassandra cluster status with: kubectl exec -it cassandra-0 -- nodetool status"
+  
+else
+  echo "Which deployment option would you prefer?"
+  echo "1: Deploy Cassandra directly from DockerHub"
+  echo "2: Deploy Cassandra from ACR (if you pushed an image)"
+  read -r option
+  
+  if [ "$option" == "1" ]; then
+    echo "Deploying Cassandra from DockerHub..."
+    kubectl apply -f cassandra-deployment.yaml
+    kubectl apply -f cassandra-service.yaml
+  elif [ "$option" == "2" ]; then
     echo "Deploying Cassandra from ACR..."
     
-    # Update the deployment file with ACR image
-    echo "Creating deployment file with ACR image..."
+    # Create a deployment file with ACR image
     cat > cassandra-deployment-from-acr.yaml << EOF
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: cassandra
   labels:
     app: cassandra
 spec:
-  serviceName: cassandra
   replicas: 1
   selector:
     matchLabels:
@@ -211,207 +227,57 @@ spec:
       labels:
         app: cassandra
     spec:
-      terminationGracePeriodSeconds: 1800
+      nodeSelector:
+        kubernetes.io/arch: arm64
       containers:
-      - name: cassandra
-        image: ${myACRName}.azurecr.io/${myACRImage}:${myACRTag}
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 7000
-          name: intra-node
-        - containerPort: 7001
-          name: tls-intra-node
-        - containerPort: 7199
-          name: jmx
-        - containerPort: 9042
-          name: cql
-        resources:
-          limits:
-            cpu: "1"
-            memory: 2Gi
-          requests:
-            cpu: "0.5"
-            memory: 1Gi
-        securityContext:
-          capabilities:
-            add:
-              - IPC_LOCK
-        lifecycle:
-          preStop:
-            exec:
-              command: 
-              - /bin/sh
-              - -c
-              - nodetool drain
-        env:
-          - name: MAX_HEAP_SIZE
-            value: 512M
-          - name: HEAP_NEWSIZE
-            value: 100M
-          - name: CASSANDRA_SEEDS
-            value: "cassandra-0.cassandra.default.svc.cluster.local"
-          - name: CASSANDRA_CLUSTER_NAME
-            value: "K8Demo"
-          - name: CASSANDRA_DC
-            value: "DC1"
-          - name: CASSANDRA_RACK
-            value: "Rack1"
-          - name: POD_IP
-            valueFrom:
-              fieldRef:
-                fieldPath: status.podIP
-        volumeMounts:
-        - name: cassandra-data
-          mountPath: /var/lib/cassandra
-  volumeClaimTemplates:
-  - metadata:
-      name: cassandra-data
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      storageClassName: managed-premium
-      resources:
-        requests:
-          storage: 10Gi
+        - name: cassandra
+          image: ${myACRName}.azurecr.io/${myACRImage}:${myACRTag}
+          ports:
+            - containerPort: 7000
+              name: intra-node
+            - containerPort: 7001
+              name: tls-intra-node
+            - containerPort: 7199
+              name: jmx
+            - containerPort: 9042
+              name: cql
+          volumeMounts:
+            - mountPath: /var/lib/cassandra
+              name: data
+      volumes:
+        - name: data
+          emptyDir: {}
 EOF
     
-    # Apply ACR deployment
-    kubectl create -f cassandra-deployment-from-acr.yaml
-    
+    kubectl apply -f cassandra-deployment-from-acr.yaml
+    kubectl apply -f cassandra-service.yaml
   else
-    echo "Deploying Cassandra from DockerHub..."
-    
-    # Create deployment file for DockerHub
-    echo "Creating deployment file with DockerHub image..."
-    cat > cassandra-deployment.yaml << EOF
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: cassandra
-  labels:
-    app: cassandra
-spec:
-  serviceName: cassandra
-  replicas: 1
-  selector:
-    matchLabels:
-      app: cassandra
-  template:
-    metadata:
-      labels:
-        app: cassandra
-    spec:
-      terminationGracePeriodSeconds: 1800
-      containers:
-      - name: cassandra
-        image: arm64v8/cassandra:latest
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 7000
-          name: intra-node
-        - containerPort: 7001
-          name: tls-intra-node
-        - containerPort: 7199
-          name: jmx
-        - containerPort: 9042
-          name: cql
-        resources:
-          limits:
-            cpu: "1"
-            memory: 2Gi
-          requests:
-            cpu: "0.5"
-            memory: 1Gi
-        securityContext:
-          capabilities:
-            add:
-              - IPC_LOCK
-        lifecycle:
-          preStop:
-            exec:
-              command: 
-              - /bin/sh
-              - -c
-              - nodetool drain
-        env:
-          - name: MAX_HEAP_SIZE
-            value: 512M
-          - name: HEAP_NEWSIZE
-            value: 100M
-          - name: CASSANDRA_SEEDS
-            value: "cassandra-0.cassandra.default.svc.cluster.local"
-          - name: CASSANDRA_CLUSTER_NAME
-            value: "K8Demo"
-          - name: CASSANDRA_DC
-            value: "DC1"
-          - name: CASSANDRA_RACK
-            value: "Rack1"
-          - name: POD_IP
-            valueFrom:
-              fieldRef:
-                fieldPath: status.podIP
-        volumeMounts:
-        - name: cassandra-data
-          mountPath: /var/lib/cassandra
-  volumeClaimTemplates:
-  - metadata:
-      name: cassandra-data
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      storageClassName: managed-premium
-      resources:
-        requests:
-          storage: 10Gi
-EOF
-    
-    # Apply DockerHub deployment
-    kubectl create -f cassandra-deployment.yaml
+    echo "Invalid option selected. Skipping Cassandra deployment."
   fi
-  
-  # Create service for Cassandra
-  echo "Creating Cassandra service..."
-  cat > cassandra-service.yaml << EOF
-apiVersion: v1
-kind: Service
-metadata:
-  labels:
-    app: cassandra
-  name: cassandra
-spec:
-  clusterIP: None
-  ports:
-  - port: 9042
-    name: cql
-  - port: 7199
-    name: jmx
-  - port: 7001
-    name: tls-intra-node
-  - port: 7000
-    name: intra-node
-  selector:
-    app: cassandra
-EOF
-  
-  kubectl create -f cassandra-service.yaml
-  
-  echo "Waiting for Cassandra pod to be ready..."
-  kubectl wait --for=condition=ready pod -l app=cassandra --timeout=300s
-  
-  echo "Cassandra deployment complete!"
 fi
 
-# Display pods and services
-echo -e "\nCassandra pods:"
-kubectl get pods -l app=cassandra
+# Validate deployment
+echo -e "\n===== Validating Deployment =====\n"
+echo "Waiting for pods to start..."
+sleep 10
 
-echo -e "\nCassandra services:"
-kubectl get svc -l app=cassandra
+echo "Current pods:"
+kubectl get pods
 
-echo -e "\nTo view Cassandra logs:"
-echo "kubectl logs \$(kubectl get pods -l app=cassandra -o jsonpath='{.items[0].metadata.name}')"
+echo -e "\nCurrent services:"
+kubectl get services
 
-echo -e "\nTo connect to Cassandra CQL shell:"
+echo -e "\nAKS Dashboard URL:"
+echo "https://portal.azure.com/#resource/subscriptions/$(az account show --query id -o tsv)/resourceGroups/${myResourceGroup}/providers/Microsoft.ContainerService/managedClusters/${myAKSCluster}/monitoring"
+
+echo -e "\nTo view the Cassandra logs, run:"
+echo "kubectl logs -l app=cassandra"
+
+echo -e "\nTo connect to the Cassandra CQL shell, run:"
 echo "kubectl exec -it \$(kubectl get pods -l app=cassandra -o jsonpath='{.items[0].metadata.name}') -- cqlsh"
 
-echo -e "\nAKS with Cassandra deployment completed successfully!"
+echo -e "\nCheck the CASSANDRA-IMPROVEMENTS.md file for more information and best practices for running Cassandra on ARM64 nodes."
+
+echo -e "\nAKS and Cassandra setup complete!"
 
 
