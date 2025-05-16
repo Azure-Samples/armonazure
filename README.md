@@ -2,6 +2,41 @@
 
 This repo contains Details and documentation on how to deploy Azure Cobalt Arm–based processors on Azure for Azure Virtual Machines and Azure Kubernetes Service.  Use the .azcli scripts as a template to deploy to Azure VMs and Azure Kubernetes Service.  
 
+## Quota Check Scripts
+
+Before deploying ARM64 resources, check your subscription's quota:
+
+### Bash Script Method
+
+The `check-arm64-quota.sh` script checks ARM64 VM quota across multiple Azure regions:
+
+```bash
+# Make the script executable
+chmod +x check-arm64-quota.sh
+
+# Run the script
+./check-arm64-quota.sh
+```
+
+This will output:
+- ARM64 VM family quota by region
+- Best regions for deployment with sufficient quota (>8 vCPUs)
+- Recommended next steps
+
+### Terraform Method
+
+The `check-arm64-quota.tf` script performs the same checks using Terraform:
+
+```bash
+# Initialize Terraform
+terraform init
+
+# Run the quota check
+terraform apply
+```
+
+When prompted, type `yes` to proceed. The script will check ARM64 VM quotas across all specified regions and provide a summary similar to the bash script version.
+
 ## Deployment Guides
 
 In this repo: 

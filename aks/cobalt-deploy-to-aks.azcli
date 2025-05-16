@@ -37,14 +37,7 @@ fi
 echo -e "\n===== Step 1: Setting up the Environment =====\n"
 
 # For AKS commands (replace with your own values or uncomment the read commands below to input interactively)
-export myResourceGroup=<your resource group name>
-export mylocation=<your location>
-export myAKSCluster=<your AKS cluster name>
 
-# For ACR (Optional)
-export myACRName=<your ACR name>
-export myACRImage=cassandra
-export myACRTag=v1
 
 # Interactive input (uncomment to use)
 # read -p "Resource Group Name: " myResourceGroup
@@ -100,7 +93,7 @@ else
     --name "$myAKSCluster" \
     --location "$mylocation" \
     --node-vm-size "$nodeVMSize" \
-    --node-count 2 \
+    --node-count "$nodeCount" \
     --generate-ssh-keys \
     --network-plugin azure \
     --network-policy azure \
@@ -171,35 +164,10 @@ fi
 # ======================================================================================
 echo -e "\n===== Step 4: Deploying Cassandra to AKS =====\n"
 
-echo "Would you like to deploy the improved Cassandra StatefulSet? (y/n)"
-read -r use_improved
-
-if [[ "$use_improved" == "y" || "$use_improved" == "Y" ]]; then
-  echo "Deploying improved Cassandra StatefulSet configuration..."
-  
-  # Apply the ConfigMap first
-  echo "Creating Cassandra ConfigMap..."
-  kubectl apply -f cassandra-config.yaml
-  
-  # Apply the improved StatefulSet
-  echo "Creating Cassandra StatefulSet..."
-  kubectl apply -f improved-cassandra-statefulset.yaml
-  
-  # Apply the improved Service
-  echo "Creating Cassandra Service..."
-  kubectl apply -f improved-cassandra-service.yaml
-  
-  echo "Waiting for Cassandra pods to be created..."
-  kubectl wait --for=condition=Ready pod/cassandra-0 --timeout=300s
-  
-  echo "Cassandra deployment started. The StatefulSet will create pods in order."
-  echo "Monitor the status with: kubectl get pods -l app=cassandra"
-  echo "Check Cassandra cluster status with: kubectl exec -it cassandra-0 -- nodetool status"
-  
-else
-  echo "Which deployment option would you prefer?"
-  echo "1: Deploy Cassandra directly from DockerHub"
-  echo "2: Deploy Cassandra from ACR (if you pushed an image)"
+  echo "Which AKS deployment option would you prefer?"
+  echo "0: Skip ARM64 Cassandra deployment"
+  echo "1: Deploy ARM64 Cassandra directly from DockerHub"
+  echo "2: Deploy ARM64 Cassandra from ACR (if you pushed an image)"
   read -r option
   
   if [ "$option" == "1" ]; then
@@ -252,9 +220,8 @@ EOF
     kubectl apply -f cassandra-deployment-from-acr.yaml
     kubectl apply -f cassandra-service.yaml
   else
-    echo "Invalid option selected. Skipping Cassandra deployment."
+    echo "Skipping Cassandra deployment."
   fi
-fi
 
 # Validate deployment
 echo -e "\n===== Validating Deployment =====\n"

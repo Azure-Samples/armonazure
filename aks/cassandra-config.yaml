@@ -3,27 +3,30 @@ kind: ConfigMap
 metadata:
   name: cassandra-config
 data:
-  cassandra-env.sh: |
-    # Optimize JVM settings for Kubernetes on ARM64
-    
-    # Set JVM options for ARM64 architecture
-    JVM_OPTS="$JVM_OPTS -XX:+UseG1GC"
-    JVM_OPTS="$JVM_OPTS -XX:+ParallelRefProcEnabled"
-    JVM_OPTS="$JVM_OPTS -XX:+UnlockExperimentalVMOptions"
-    JVM_OPTS="$JVM_OPTS -XX:+DisableExplicitGC"
-    JVM_OPTS="$JVM_OPTS -XX:MaxGCPauseMillis=200"
-    
-    # Read ahead optimization for ARM64
-    if [ -e /sys/block/sda/queue/read_ahead_kb ]; then
-      echo 8 > /sys/block/sda/queue/read_ahead_kb
-    fi
-    
-    # Set optimal garbage collection settings
-    JVM_OPTS="$JVM_OPTS -XX:InitiatingHeapOccupancyPercent=70"
-    JVM_OPTS="$JVM_OPTS -XX:+UseCompressedOops"
-    
-    # Network and thread settings
-    CASSANDRA_BROADCAST_ADDRESS=${POD_IP}
-    CASSANDRA_LISTEN_ADDRESS=${POD_IP}
-    CASSANDRA_RPC_ADDRESS=${POD_IP}
-    CASSANDRA_SEEDS=${CASSANDRA_SEEDS}
+  cassandra.yaml: |
+    cluster_name: 'CassandraCluster'
+    num_tokens: 32
+    hinted_handoff_enabled: true
+    seed_provider:
+      - class_name: org.apache.cassandra.locator.SimpleSeedProvider
+        parameters:
+          - seeds: "cassandra-0.cassandra.default.svc.cluster.local"
+    disk_failure_policy: stop
+    commit_failure_policy: stop
+    key_cache_size_in_mb:
+    key_cache_save_period: 14400
+    row_cache_size_in_mb: 0
+    commitlog_sync: periodic
+    commitlog_sync_period_in_ms: 10000
+    partitioner: org.apache.cassandra.dht.Murmur3Partitioner
+    endpoint_snitch: SimpleSnitch
+    start_native_transport: true
+    native_transport_port: 9042
+  jvm.options: |
+    -XX:+UseG1GC
+    -XX:+ParallelRefProcEnabled
+    -XX:MaxGCPauseMillis=500
+    -XX:+UnlockExperimentalVMOptions
+    -XX:+UseZGC
+    -Xms1G
+    -Xmx2G
