@@ -1,6 +1,7 @@
 #!/bin/bash
 # filepath: c:\githublocal\armonazure\aks\cobalt-deploy-to-aks.azcli
 # Updated: May 2025
+# Full instructions at https://aka.ms/armonazure
 # Create a new Azure Kubernetes Service running Cassandra on Azure Cobalt ARM64 VMs
 
 # ======================================================================================

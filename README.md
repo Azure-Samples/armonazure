@@ -1,5 +1,7 @@
 # ARM on Azure - Using Azure Cobalt CPUs on Azure Virtual Machines and Azure Kubernetes Service
 
+# Shortlink: https://aka.ms/armonazure
+
 This repo contains Details and documentation on how to deploy Azure Cobalt Arm–based processors on Azure for Azure Virtual Machines and Azure Kubernetes Service.  Use the .azcli scripts as a template to deploy to Azure VMs and Azure Kubernetes Service.  
 
 ## Quota Check Scripts
