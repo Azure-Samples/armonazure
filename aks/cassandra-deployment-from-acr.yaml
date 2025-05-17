@@ -1,11 +1,10 @@
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: cassandra
   labels:
     app: cassandra
 spec:
-  serviceName: cassandra
   replicas: 1
   selector:
     matchLabels:
@@ -15,9 +14,23 @@ spec:
       labels:
         app: cassandra
     spec:
-      terminationGracePeriodSeconds: 1800
+      nodeSelector:
+        kubernetes.io/arch: arm64
       containers:
-      - name: cassandra
-        image: bbenzbuild2025.azurecr.io/cassandra:v1
-        imagePullPolicy: Always
-        # ... (configuration details) ...
+        - name: cassandra
+          image: bbenzarmonaksportal.azurecr.io/cassandra:v1
+          ports:
+            - containerPort: 7000
+              name: intra-node
+            - containerPort: 7001
+              name: tls-intra-node
+            - containerPort: 7199
+              name: jmx
+            - containerPort: 9042
+              name: cql
+          volumeMounts:
+            - mountPath: /var/lib/cassandra
+              name: data
+      volumes:
+        - name: data
+          emptyDir: {}

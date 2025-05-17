@@ -54,6 +54,9 @@ In this repo:
 
 Links: 
 
+
+☁️ <a href='https://learn.microsoft.com/en-us/azure/aks/learn/quick-kubernetes-deploy-portal?tabs=azure-cli' target='_blank'>Quickstart: Deploy an Azure Kubernetes Service (AKS) cluster using Azure portal</a>
+
 ☁️ <a href='https://azure.microsoft.com/en-us/blog/azure-cobalt-100-based-virtual-machines-are-now-generally-available' target='_blank'>Azure Cobalt 100-based Virtual Machines are now generally available</a> 
 
 ☁️ <a href='https://newsroom.arm.com/blog/arm-powered-microsoft-azure-cobalt-100-vms' target='_blank'>ARM Blog: Cloud Efficiency and Performance: Arm Neoverse-powered Microsoft Azure Cobalt 100 VMs Now Available</a> 
