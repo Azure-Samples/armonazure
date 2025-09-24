@@ -18,7 +18,7 @@ spec:
         kubernetes.io/arch: arm64
       containers:
         - name: cassandra
-          image: bbenzarmonaksportal.azurecr.io/cassandra:v1
+          image: bbenzbuild2025.azurecr.io/cassandra:v1
           ports:
             - containerPort: 7000
               name: intra-node
